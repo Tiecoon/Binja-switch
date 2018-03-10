@@ -28,6 +28,9 @@ class SwitchSection:
 		self.decompressedSize = unpack32(data[8:12])
 		self.exSize = unpack32(data[12:16])
 
+	def __repr__(self):
+		return '<Section: size=' + hex(self.decompressedSize) + " vmem=" + hex(self.memoryOffset) + ">"
+
 class SwitchExecutableView(BinaryView):
 	"""Nintendo Switch Executable"""
 	name = "Switch Executable"
@@ -41,7 +44,6 @@ class SwitchExecutableView(BinaryView):
 		self.platform = Architecture['aarch64'].standalone_platform 
 
 		header = data[0:0x100]
-		print('Header: ' + header.encode('hex'))
 
 		flags = struct.unpack("<I", header[0xC:0xC + 4])[0]
 		print('Flags: ' + "{0:b}".format(flags))
@@ -58,6 +60,15 @@ class SwitchExecutableView(BinaryView):
 			compressedData = data[section.fileOffset: section.fileOffset + compressedSize] 
 			section.decompressData(compressedData)
 
+		mod0Addr = unpack32(self.sections[0].sectionData[4:8])
+		print('MOD0: ' + str(mod0Addr))
+
+		__data = self.sections[0].sectionData + self.sections[1].sectionData + self.sections[2].sectionData
+		f = open("/tmp/bbbb", "w+")
+		f.write(__data)
+		f.close()
+		
+		print(self.sections)
 		self.init_real()
 
 	@classmethod
