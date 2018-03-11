@@ -40,10 +40,14 @@ class SwitchExecutableView(BinaryView):
 	long_name = "Nintendo Switch Executable"
 	sections = []
 	should_check_hash = False
+	dynstr = []
+	dynsym = []
 
 	def __init__(self, data):
-
 		self.sections = []
+		self.dynstr = []
+		self.dynsym = []
+
 		self.should_check_hash = False
 
 		# parse what we need from file 
@@ -68,17 +72,13 @@ class SwitchExecutableView(BinaryView):
 		self.header = data[0:0x100]
 
 		self.parseTextDataRodata(data)
-		self.checkHashes()
-		self.parseDynStr()
-		self.parseDynSym()
 		print(self.sections)
 
-		self.header = None
+		self.checkHashes()
 
 	def post_init(self):
 		self.init_real()
-		self.applyDynStr()
-		self.applyDynSym()
+		self.header = None
 
 	def parseTextDataRodata(self, data):
 
@@ -122,24 +122,7 @@ class SwitchExecutableView(BinaryView):
 
 		self.add_entry_point(self.sections[0].memoryOffset)
 
-		self.applyDynStr()
-		self.applyDynSym()
-
-		self.attemptMod0()
-
-	def parseDynStr(self):
-		dynstr = self.header[0x90:0x98]
-		print('Dynstr at: ' + dynstr.encode('hex'))
-
-	def parseDynSym(self):
-		dynsym = unpack64(self.header[0x98:0xa0])
-		print('Dynsym at: ' + hex(dynsym + self.sections[1].memoryOffset))
-		pass
-
-	def applyDynStr(self):
-		pass
-	def applyDynSym(self):
-		pass
+		self.attemptMod0()	
 
 	def checkHashes(self):
 		pass
@@ -169,7 +152,29 @@ class SwitchExecutableView(BinaryView):
 			self.add_user_section(sectionStrings[i], self.sections[i].memoryOffset, self.sections[i].decompressedSize, segflags[i][1])
 			len_ += self.sections[i].decompressedSize
 
-	def parseMod0(self, data):
+	def parseMod0(self, mod):
+		dynstr = unpack64(self.header[0x90:0x98])
+		dynsym = unpack64(self.header[0x98:0x98+8])
+		dynamic = unpack32(mod[4:8])
+		bss = unpack32(mod[8:12])
+		bssEnd = unpack32(mod[12:16])
+
+		print('dynstr: ' + hex(dynstr))
+		print('dynsym: ' + hex(dynsym))
+		print('dynstr0:' + hex(dynamic))
+		# dynstr:  0x0005b960
+		#          0x00034b28
+		# dynsym:  0x000308b0	
+		#		   0x00042780
+
+		print('bss: ' + hex(bss))
+		f = open('/tmp/bdata', 'w+')
+		f.write(self.sections[1].sectionData)
+		f.close()
+		print('AAA: ' + mod[dynamic:dynamic+15])
+
+		# Switch wiki says .dynstr/.dynsym offsets are in the file header
+		# I don't really understand them. I'm going to use .dynamic from mod0.
 		pass
 
 	def perform_is_executable(self):
