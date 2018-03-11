@@ -43,21 +43,37 @@ class SwitchExecutableView(BinaryView):
 		self.sections = []
 		self.should_check_hash = False
 
-		self.parseFile(data)
-		print(self.sections)
+		# parse what we need from file 
+		self.pre_init(data)
 
+		# setup binaryview
 		decompressedData = self.sections[0].sectionData + self.sections[1].sectionData + self.sections[2].sectionData
 
+		# temporary workaround for the case where
+		# the file data is not what we want binja to use
 		fake_parent = BinaryView.new(data=decompressedData)
 		BinaryView.__init__(self, file_metadata=data.file, parent_view=fake_parent)
-		self.data = data
+		self.data = decompressedData
 
 		self.platform = Architecture['aarch64'].standalone_platform 
 		self.arch = Architecture['aarch64']
 
-		self.init_real()
+		# give data to binja now
+		self.post_init()
 
-	def parseFile(self, data):
+	def pre_init(self, data):
+		self.parseTextDataRodata(data)
+		self.checkHashes()
+		self.parseDynStr()
+		self.parseDynSym()
+		print(self.sections)
+
+	def post_init(self):
+		self.init_real()
+		self.applyDynStr()
+		self.applyDynSym()
+
+	def parseTextDataRodata(self, data):
 		header = data[0:0x100]
 
 		flags = struct.unpack("<I", header[0xC:0xC + 4])[0]
@@ -75,28 +91,76 @@ class SwitchExecutableView(BinaryView):
 			compressedData = data[section.fileOffset: section.fileOffset + compressedSize] 
 			section.decompressData(compressedData)
 
-		mod0Addr = unpack32(self.sections[0].sectionData[4:8])
-		print('MOD0: ' + str(mod0Addr))
+		for i in range(2):
+			sec0 = self.sections[i]
+			sec1 = self.sections[i + 1]
+
+			sec0len = len(sec0.sectionData)
+			
+			if sec0len < sec1.memoryOffset:
+				self.sections[i].sectionData = self.sections[i].sectionData + '\0' * (sec1.memoryOffset - sec0len)
+				print('Appending nulls... ' + str(sec1.memoryOffset - sec0len))
+				# i don't fully understand this.
 
 	@classmethod
 	def is_valid_for_data(self, data):
 		if data[0:4] == 'NSO0':
 			return True
 		return False
+
 	def init_common(self):
 		pass
 
 	def init_real(self):
-		sectionStrings = ["text", "data", "rodata"]
-		segflags = [SegmentFlag.SegmentContainsCode | SegmentFlag.SegmentExecutable | SegmentFlag.SegmentReadable, SegmentFlag.SegmentContainsData | SegmentFlag.SegmentWritable | SegmentFlag.SegmentReadable, SegmentFlag.SegmentContainsData | SegmentFlag.SegmentDenyWrite | SegmentFlag.SegmentReadable ]
-		len_ = 0
-		for i in range(3):
-			self.add_user_segment(self.sections[i].memoryOffset, self.sections[i].decompressedSize, len_, self.sections[i].decompressedSize, segflags[i])
-			len_ += self.sections[i].decompressedSize
+		self.makeSectionsAndSegments()
+
 		self.add_entry_point(self.sections[0].memoryOffset)
 
-	def perform_is_offset_readable(self, offt):
-		return True
+		self.parseDynStr()
+		self.parseDynSym()
+
+		self.attemptMod0()
+
+	def parseDynStr(self):
+		pass
+	def parseDynSym(self):
+		pass
+
+	def applyDynStr(self):
+		pass
+	def applyDynSym(self):
+		pass
+
+	def checkHashes(self):
+		pass
+
+	def attemptMod0(self):
+		mod0Addr = unpack32(self.sections[0].sectionData[4:8])
+		print('Found MOD0?: ' + str(mod0Addr))
+
+		if self.data[mod0Addr:mod0Addr+4] != 'MOD0':
+			print("Couldn't find mod0 :(")
+			return
+
+		print('Found MOD0: ' + self.data[mod0Addr:mod0Addr+4])
+		self.parseMod0(self.data[mod0Addr:])
+
+	def makeSectionsAndSegments(self):
+		sectionStrings = ["text", "data", "rodata"]
+		segflags = [
+				(SegmentFlag.SegmentContainsCode | SegmentFlag.SegmentExecutable | SegmentFlag.SegmentReadable, SectionSemantics.ReadOnlyCodeSectionSemantics),
+				(SegmentFlag.SegmentContainsData | SegmentFlag.SegmentWritable | SegmentFlag.SegmentReadable, SectionSemantics.ReadWriteDataSectionSemantics), 
+				(SegmentFlag.SegmentContainsData | SegmentFlag.SegmentDenyWrite | SegmentFlag.SegmentReadable, SectionSemantics.ReadOnlyDataSectionSemantics)
+				]
+
+		len_ = 0
+		for i in range(3):
+			self.add_user_segment(self.sections[i].memoryOffset, self.sections[i].decompressedSize, len_, self.sections[i].decompressedSize, segflags[i][0])
+			self.add_user_section(sectionStrings[i], self.sections[i].memoryOffset, self.sections[i].decompressedSize, segflags[i][1])
+			len_ += self.sections[i].decompressedSize
+
+	def parseMod0(self, data):
+		pass
 
 	def perform_is_executable(self):
 		return True
