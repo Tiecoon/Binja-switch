@@ -5,6 +5,9 @@ import struct
 def unpack32(x):
 	return struct.unpack("<I", x)[0]
 
+def unpack64(x):
+	return struct.unpack("<Q", x)[0]
+
 class SwitchSection:
 	is_compressed = False
 	check_hash = False
@@ -62,11 +65,15 @@ class SwitchExecutableView(BinaryView):
 		self.post_init()
 
 	def pre_init(self, data):
+		self.header = data[0:0x100]
+
 		self.parseTextDataRodata(data)
 		self.checkHashes()
 		self.parseDynStr()
 		self.parseDynSym()
 		print(self.sections)
+
+		self.header = None
 
 	def post_init(self):
 		self.init_real()
@@ -74,16 +81,15 @@ class SwitchExecutableView(BinaryView):
 		self.applyDynSym()
 
 	def parseTextDataRodata(self, data):
-		header = data[0:0x100]
 
-		flags = struct.unpack("<I", header[0xC:0xC + 4])[0]
+		flags = struct.unpack("<I", self.header[0xC:0xC + 4])[0]
 		print('Flags: ' + "{0:b}".format(flags))
 
 		for i in range(3):
 			is_compressed = flags & (1 << i)
 			check_hash = flags & (1 << (i + 3))
-			sectionData = header[0x10 * (i + 1):0x10 * (i + 2)]
-			compressedSize = unpack32(header[0x60 + (i * 0x4) : 0x60 + (i + 1)*0x4])
+			sectionData = self.header[0x10 * (i + 1):0x10 * (i + 2)]
+			compressedSize = unpack32(self.header[0x60 + (i * 0x4) : 0x60 + (i + 1)*0x4])
 			self.sections.append(
 				SwitchSection(sectionData, is_compressed, check_hash))
 
@@ -116,14 +122,18 @@ class SwitchExecutableView(BinaryView):
 
 		self.add_entry_point(self.sections[0].memoryOffset)
 
-		self.parseDynStr()
-		self.parseDynSym()
+		self.applyDynStr()
+		self.applyDynSym()
 
 		self.attemptMod0()
 
 	def parseDynStr(self):
-		pass
+		dynstr = self.header[0x90:0x98]
+		print('Dynstr at: ' + dynstr.encode('hex'))
+
 	def parseDynSym(self):
+		dynsym = unpack64(self.header[0x98:0xa0])
+		print('Dynsym at: ' + hex(dynsym + self.sections[1].memoryOffset))
 		pass
 
 	def applyDynStr(self):
