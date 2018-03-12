@@ -8,6 +8,9 @@ def unpack32(x):
 def unpack64(x):
 	return struct.unpack("<Q", x)[0]
 
+def inpack32(x):
+	return struct.unpack("<i", x)[0]
+
 class SwitchSection:
 	is_compressed = False
 	check_hash = False
@@ -97,16 +100,13 @@ class SwitchExecutableView(BinaryView):
 			compressedData = data[section.fileOffset: section.fileOffset + compressedSize] 
 			section.decompressData(compressedData)
 
-		for i in range(2):
-			sec0 = self.sections[i]
-			sec1 = self.sections[i + 1]
+		# garbage
+		if len(self.sections[0].sectionData) < self.sections[1].memoryOffset:
+			self.sections[0].sectionData += '\0' * (self.sections[1].memoryOffset - len(self.sections[0].sectionData))
 
-			sec0len = len(sec0.sectionData)
-			
-			if sec0len < sec1.memoryOffset:
-				self.sections[i].sectionData = self.sections[i].sectionData + '\0' * (sec1.memoryOffset - sec0len)
-				print('Appending nulls... ' + str(sec1.memoryOffset - sec0len))
-				# i don't fully understand this.
+		if len(self.sections[0].sectionData) + len(self.sections[1].sectionData) < self.sections[2].memoryOffset:
+			self.sections[1].sectionData += '\0' * (self.sections[2].memoryOffset - len(self.sections[0].sectionData) - len(self.sections[1].sectionData))
+		# end garbage
 
 	@classmethod
 	def is_valid_for_data(self, data):
@@ -135,7 +135,12 @@ class SwitchExecutableView(BinaryView):
 			print("Couldn't find mod0 :(")
 			return
 
-		print('Found MOD0: ' + self.data[mod0Addr:mod0Addr+4])
+		ddynamic = mod0Addr + inpack32(self.data[mod0Addr + 4: mod0Addr + 8])
+		bss = mod0Addr + inpack32(self.data[mod0Addr + 8 : mod0Addr + 12])
+		bssEnd = mod0Addr + inpack32(self.data[mod0Addr + 12 : mod0Addr + 16])
+		
+		print('.dynamic: ' + hex(ddynamic))
+		print('.dynamic data: ' + self.data[ddynamic: ddynamic + 100].encode('hex'))
 		self.parseMod0(self.data[mod0Addr:])
 
 	def makeSectionsAndSegments(self):
@@ -153,26 +158,6 @@ class SwitchExecutableView(BinaryView):
 			len_ += self.sections[i].decompressedSize
 
 	def parseMod0(self, mod):
-		dynstr = unpack64(self.header[0x90:0x98])
-		dynsym = unpack64(self.header[0x98:0x98+8])
-		dynamic = unpack32(mod[4:8])
-		bss = unpack32(mod[8:12])
-		bssEnd = unpack32(mod[12:16])
-
-		print('dynstr: ' + hex(dynstr))
-		print('dynsym: ' + hex(dynsym))
-		print('dynstr0:' + hex(dynamic))
-		# dynstr:  0x0005b960
-		#          0x00034b28
-		# dynsym:  0x000308b0	
-		#		   0x00042780
-
-		print('bss: ' + hex(bss))
-		f = open('/tmp/bdata', 'w+')
-		f.write(self.sections[1].sectionData)
-		f.close()
-		print('AAA: ' + mod[dynamic:dynamic+15])
-
 		# Switch wiki says .dynstr/.dynsym offsets are in the file header
 		# I don't really understand them. I'm going to use .dynamic from mod0.
 		pass
